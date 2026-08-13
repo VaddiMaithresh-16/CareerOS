@@ -39,8 +39,8 @@ CareerOS integrates with several external APIs for discovery and intelligence. W
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/yourusername/careeros.git
-cd careeros
+git clone https://github.com/VaddiMaithresh-16/CareerOS.git
+cd CareerOs
 ```
 
 ### 2. Set Up Virtual Environment
