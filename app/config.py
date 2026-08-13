@@ -34,6 +34,9 @@ class Settings(BaseSettings):
 
     api_key: str = ""  # set to require X-API-Key header on all endpoints; empty = open (dev default)
     rate_limit_per_minute: int = 60
+    
+    gradio_username: str = ""
+    gradio_password: str = ""
 
     llm_provider_mode: str = "auto"  # "auto" | "llama" | "gemini" | "none"
 
