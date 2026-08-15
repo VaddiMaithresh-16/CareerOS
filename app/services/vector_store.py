@@ -35,10 +35,11 @@ def get_client() -> QdrantClient:
         if _client_singleton is not None:
             return _client_singleton
         qdrant_url = getattr(settings, "qdrant_url", "") or ""
-        if qdrant_url:
+        if qdrant_url and (qdrant_url.startswith("http://") or qdrant_url.startswith("https://")):
             _client_singleton = QdrantClient(url=qdrant_url)
         else:
-            _client_singleton = QdrantClient(path="./qdrant_local")
+            # Local file mode (default: ./qdrant_local)
+            _client_singleton = QdrantClient(path=qdrant_url or "./qdrant_local")
     return _client_singleton
 
 

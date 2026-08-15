@@ -27,7 +27,7 @@ from app.services.dedup import upsert_job
 from app.services.filters import apply_hard_filters
 from app.services.vector_store import get_client, index_job, semantic_search
 from app.services.reranker import ScoredJob, keyword_score, rerank
-from app.services.model_router import get_model_router
+from app.services.model_router import get_model_router, get_model_router_for_request
 
 settings = get_settings()
 _checkpointer_singleton: dict = {}
