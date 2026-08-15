@@ -107,7 +107,8 @@ class JSearchAdapter:
         data = resp.json()
 
         results = []
-        for item in data.get("data", []):
+        # v2 API returns data.jobs array, not data array directly
+        for item in data.get("data", {}).get("jobs", []):
             results.append(
                 RawJobPosting(
                     source="jsearch",
@@ -115,7 +116,7 @@ class JSearchAdapter:
                     title=item.get("job_title", ""),
                     company=item.get("employer_name", ""),
                     location_raw=item.get("job_city") or item.get("job_country") or "",
-                    employment_type_raw=item.get("job_employment_type", ""),
+                    employment_type_raw=item.get("job_employment_type") or "",
                     description=item.get("job_description", ""),
                     apply_url=item.get("job_apply_link", ""),
                     posted_at_raw=item.get("job_posted_at_datetime_utc"),
