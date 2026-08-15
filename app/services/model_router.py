@@ -33,8 +33,9 @@ class LLMProvider(Protocol):
 class LlamaCppProvider:
     """Local, private, cheap — first choice for high-volume classification (spec 6.2)."""
 
-    def __init__(self, base_url: str):
+    def __init__(self, base_url: str, timeout: float = 5.0):
         self.base_url = base_url.rstrip("/")
+        self.timeout = timeout
 
     async def structured(self, prompt: str, schema: type[BaseModel]) -> BaseModel:
         payload = {
@@ -45,11 +46,15 @@ class LlamaCppProvider:
             ],
             "temperature": 0,
         }
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(f"{self.base_url}/v1/chat/completions", json=payload)
-            resp.raise_for_status()
-            raw = resp.json()["choices"][0]["message"]["content"]
-        return schema.model_validate(json.loads(raw))
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                resp = await client.post(f"{self.base_url}/v1/chat/completions", json=payload)
+                resp.raise_for_status()
+                raw = resp.json()["choices"][0]["message"]["content"]
+            return schema.model_validate(json.loads(raw))
+        except (httpx.ConnectError, httpx.TimeoutException):
+            # Fail fast — don't hang for 30s if llama.cpp isn't running
+            raise
 
 
 class GeminiProvider:
@@ -119,7 +124,8 @@ class ModelRouter:
 
 
 def get_model_router() -> ModelRouter:
-    llama = LlamaCppProvider(settings.llama_cpp_base_url) if settings.llama_cpp_base_url else None
+    # Short timeout for llama so we fail fast if server isn't running
+    llama = LlamaCppProvider(settings.llama_cpp_base_url, timeout=5.0) if settings.llama_cpp_base_url else None
     gemini = GeminiProvider(settings.gemini_api_key, settings.gemini_model) if settings.gemini_api_key else None
 
     if settings.llm_provider_mode == "llama":

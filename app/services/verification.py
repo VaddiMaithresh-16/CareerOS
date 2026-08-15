@@ -16,6 +16,26 @@ settings = get_settings()
 
 FIRECRAWL_SCRAPE_URL = "https://api.firecrawl.dev/v2/scrape"
 
+# Reusable HTTP clients for better performance
+_http_client = None
+_firecrawl_client = None
+
+
+def get_http_client() -> httpx.AsyncClient:
+    """Get or create a reusable HTTP client."""
+    global _http_client
+    if _http_client is None:
+        _http_client = httpx.AsyncClient(timeout=10.0, follow_redirects=True)
+    return _http_client
+
+
+def get_firecrawl_client() -> httpx.AsyncClient:
+    """Get or create a reusable Firecrawl HTTP client."""
+    global _firecrawl_client
+    if _firecrawl_client is None:
+        _firecrawl_client = httpx.AsyncClient(timeout=30.0)
+    return _firecrawl_client
+
 
 class VerificationResult(BaseModel):
     verified: bool
@@ -24,26 +44,40 @@ class VerificationResult(BaseModel):
     content_snippet: str | None = None
 
 
+class FirecrawlResponse(BaseModel):
+    """Firecrawl v2 /scrape response structure. Validated before trusting content."""
+    success: bool
+    data: dict | None = None
+
+
+class FirecrawlData(BaseModel):
+    markdown: str | None = None
+    metadata: dict | None = None
+
+
 async def _http_head_check(url: str) -> bool:
     try:
-        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
-            resp = await client.head(url)
-            if resp.status_code == 405:  # some ATS boards reject HEAD, fall back to GET
-                resp = await client.get(url)
-            return resp.status_code < 400
+        client = get_http_client()
+        resp = await client.head(url)
+        if resp.status_code == 405:  # some ATS boards reject HEAD, fall back to GET
+            resp = await client.get(url)
+        return resp.status_code < 400
     except httpx.HTTPError:
         return False
 
 
-async def _firecrawl_scrape(url: str) -> dict | None:
+async def _firecrawl_scrape(url: str) -> FirecrawlResponse | None:
     if not settings.firecrawl_api_key:
         return None
     headers = {"Authorization": f"Bearer {settings.firecrawl_api_key}", "Content-Type": "application/json"}
     payload = {"url": url, "formats": ["markdown"], "onlyMainContent": True}
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    try:
+        client = get_firecrawl_client()
         resp = await client.post(FIRECRAWL_SCRAPE_URL, headers=headers, json=payload)
         resp.raise_for_status()
-        return resp.json()
+        return FirecrawlResponse.model_validate(resp.json())
+    except httpx.HTTPError:
+        return None
 
 
 def _looks_like_dead_posting(markdown: str) -> bool:
@@ -64,15 +98,16 @@ async def verify_job_posting(apply_url: str, expected_title: str, expected_compa
         return VerificationResult(verified=False, reason="reachable, no FIRECRAWL_API_KEY to confirm content")
 
     try:
-        data = await _firecrawl_scrape(apply_url)
+        fc_resp = await _firecrawl_scrape(apply_url)
     except httpx.HTTPError as e:
         return VerificationResult(verified=False, reason=f"firecrawl request failed: {e}")
 
-    if not data or not data.get("success"):
+    if not fc_resp or not fc_resp.success or not fc_resp.data:
         return VerificationResult(verified=False, reason="firecrawl returned no usable content")
 
-    markdown = data.get("data", {}).get("markdown", "") or ""
-    page_title = data.get("data", {}).get("metadata", {}).get("title")
+    fc_data = FirecrawlData.model_validate(fc_resp.data)
+    markdown = fc_data.markdown or ""
+    page_title = (fc_data.metadata or {}).get("title")
 
     if _looks_like_dead_posting(markdown):
         return VerificationResult(
