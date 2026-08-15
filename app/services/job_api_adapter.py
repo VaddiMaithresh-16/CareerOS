@@ -5,14 +5,19 @@ more coverage, same dedup guarantee.
 """
 
 import httpx
+import logging
 from typing import Protocol
 
 from app.config import get_settings
 from app.schemas import RawJobPosting
 
 settings = get_settings()
+logger = logging.getLogger("careeros")
 
-JSEARCH_URL = "https://jsearch.p.rapidapi.com/search"
+# Use v2 endpoint per RapidAPI JSearch documentation
+# NOTE: Requires active RapidAPI subscription (free tier ~200 req/month)
+# Subscribe at: https://rapidapi.com/letscrape-6bRBa3QG1q/api/jsearch
+JSEARCH_URL = "https://jsearch.p.rapidapi.com/search-v2"
 
 # Reusable HTTP client for better performance
 _http_client = None
@@ -71,7 +76,27 @@ class JSearchAdapter:
         self._api_key = api_key
 
     async def search(self, query: str, location: str | None = None) -> list[RawJobPosting]:
-        params = {"query": f"{query} in {location}" if location else query, "page": "1"}
+        # Build query with location if provided
+        search_query = f"{query} in {location}" if location else query
+
+        # Map location to country code for v2 API
+        country_map = {
+            "india": "in", "usa": "us", "united states": "us", "uk": "gb", "united kingdom": "gb",
+            "germany": "de", "canada": "ca", "australia": "au", "france": "fr", "japan": "jp",
+            "singapore": "sg", "uae": "ae", "dubai": "ae", "netherlands": "nl", "ireland": "ie",
+        }
+        country_code = "in"  # default to India
+        if location:
+            loc_lower = location.lower().strip()
+            country_code = country_map.get(loc_lower, "in")
+
+        # v2 API parameters
+        params = {
+            "query": search_query,
+            "num_pages": "1",
+            "country": country_code,
+            "date_posted": "all",
+        }
         headers = {
             "X-RapidAPI-Key": self._api_key,
             "X-RapidAPI-Host": "jsearch.p.rapidapi.com",
