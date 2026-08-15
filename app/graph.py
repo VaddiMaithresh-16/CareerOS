@@ -132,7 +132,11 @@ async def _retrieve_and_rerank(state: CareerOSState, db: Session) -> CareerOSSta
 
 async def _evidence_and_explain(state: CareerOSState, db: Session) -> CareerOSState:
     req = MatchRequest(**state["request"])
-    router = get_model_router()
+    # Use per-request provider/model if specified, otherwise use defaults
+    router = get_model_router_for_request(
+        llm_provider=req.llm_provider,
+        model_name=req.model_name,
+    )
 
     for entry in state["ranked"]:
         job = db.get(Job, entry["job_id"])
@@ -177,12 +181,18 @@ def build_graph(db: Session, checkpointer):
     return graph.compile(checkpointer=checkpointer, interrupt_before=["human_review"])
 
 
-async def run_match_workflow(db: Session, req: MatchRequest, thread_id: str) -> list[dict]:
+async def run_match_workflow(db: Session, req: MatchRequest, thread_id: str, llm_provider: str | None = None, model_name: str | None = None) -> list[dict]:
     checkpointer = await get_checkpointer()
     app_graph = build_graph(db, checkpointer)
     config = {"configurable": {"thread_id": thread_id}}
+
+    # Include llm_provider and model_name in request for the workflow
+    req_dict = req.model_dump()
+    req_dict["llm_provider"] = llm_provider
+    req_dict["model_name"] = model_name
+
     initial: CareerOSState = {
-        "request": req.model_dump(), "candidate_ids": [], "ranked": [], "approved_ids": [], "rejected_ids": [],
+        "request": req_dict, "candidate_ids": [], "ranked": [], "approved_ids": [], "rejected_ids": [],
     }
     result = await app_graph.ainvoke(initial, config=config)
     return result["ranked"]

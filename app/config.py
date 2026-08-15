@@ -28,17 +28,25 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-flash-latest"  # alias, auto-follows Google rollouts — never pin exact version
     llama_cpp_base_url: str = ""
 
+    # OpenRouter
+    openrouter_api_key: str = ""
+    openrouter_model: str = "anthropic/claude-3.5-sonnet"
+
+    # NVIDIA NIM
+    nvidia_api_key: str = ""
+    nvidia_model: str = "meta/llama-3.1-70b-instruct"
+
     qdrant_url: str = ""
 
     firecrawl_api_key: str = ""
 
     api_key: str = ""  # set to require X-API-Key header on all endpoints; empty = open (dev default)
     rate_limit_per_minute: int = 60
-    
+
     gradio_username: str = ""
     gradio_password: str = ""
 
-    llm_provider_mode: str = "auto"  # "auto" | "llama" | "gemini" | "none"
+    llm_provider_mode: str = "auto"  # "auto" | "llama" | "gemini" | "openrouter" | "nvidia" | "none"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

@@ -34,7 +34,7 @@ CareerOS integrates with several external APIs for discovery and intelligence. W
 
 - **Python 3.12+**
 - **Git**
-- **MySQL** (Optional: If omitted, the system defaults to local SQLite for development)
+- **MySQL** (Required: the system uses MySQL for development and production)
 
 ### 1. Clone the Repository
 
@@ -78,7 +78,7 @@ copy .env.example .env
 ```
 
 Open `.env` in your preferred text editor and add your acquired API keys. 
-*Note: If you leave `DATABASE_URL` blank, CareerOS will automatically default to a local SQLite database for ease of setup.*
+*Note: MySQL is required. Configure `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_DATABASE`, `MYSQL_USER`, `MYSQL_PASSWORD` or set `DATABASE_URL` directly.*
 
 ---
 
