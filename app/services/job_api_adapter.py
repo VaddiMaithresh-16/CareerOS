@@ -4,9 +4,8 @@ sources by url_hash/content_hash, so adding a second real API is pure upside —
 more coverage, same dedup guarantee.
 """
 
-from typing import Protocol
-
 import httpx
+from typing import Protocol
 
 from app.config import get_settings
 from app.schemas import RawJobPosting
@@ -14,6 +13,17 @@ from app.schemas import RawJobPosting
 settings = get_settings()
 
 JSEARCH_URL = "https://jsearch.p.rapidapi.com/search"
+
+# Reusable HTTP client for better performance
+_http_client = None
+
+
+def get_http_client() -> httpx.AsyncClient:
+    """Get or create a reusable HTTP client."""
+    global _http_client
+    if _http_client is None:
+        _http_client = httpx.AsyncClient(timeout=15.0)
+    return _http_client
 
 
 class JobSourceAdapter(Protocol):
@@ -66,10 +76,10 @@ class JSearchAdapter:
             "X-RapidAPI-Key": self._api_key,
             "X-RapidAPI-Host": "jsearch.p.rapidapi.com",
         }
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get(JSEARCH_URL, params=params, headers=headers)
-            resp.raise_for_status()
-            data = resp.json()
+        client = get_http_client()
+        resp = await client.get(JSEARCH_URL, params=params, headers=headers)
+        resp.raise_for_status()
+        data = resp.json()
 
         results = []
         for item in data.get("data", []):
@@ -124,10 +134,10 @@ class AdzunaAdapter:
         if location:
             params["where"] = location
 
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get(url, params=params)
-            resp.raise_for_status()
-            data = resp.json()
+        client = get_http_client()
+        resp = await client.get(url, params=params)
+        resp.raise_for_status()
+        data = resp.json()
 
         results = []
         for item in data.get("results", []):
@@ -156,10 +166,10 @@ class RemotiveAdapter:
     """remotive.com — free, no key, remote-only listings."""
 
     async def search(self, query: str, location: str | None = None) -> list[RawJobPosting]:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get("https://remotive.com/api/remote-jobs", params={"search": query})
-            resp.raise_for_status()
-            data = resp.json()
+        client = get_http_client()
+        resp = await client.get("https://remotive.com/api/remote-jobs", params={"search": query})
+        resp.raise_for_status()
+        data = resp.json()
 
         results = []
         for item in data.get("jobs", []):
@@ -296,6 +306,12 @@ def get_adapter() -> JobSourceAdapter:
         configured.append(ArbeitnowAdapter())
 
     if not configured:
+        import logging
+        logging.getLogger("careeros").warning(
+            "JOB_API_MODE=live but no job sources configured with valid credentials. "
+            "Falling back to MockJobAdapter. Set JSEARCH_API_KEY, ADZUNA_APP_ID/KEY, "
+            "or enable free sources (remotive, remoteok, arbeitnow) in JOB_SOURCES."
+        )
         return MockJobAdapter()  # live mode requested but no source has a working key
     if len(configured) == 1:
         return configured[0]

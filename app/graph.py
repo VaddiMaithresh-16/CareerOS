@@ -7,7 +7,7 @@ TOP 10-20 -> HUMAN REVIEW -> APPROVE/REJECT (spec section 4).
 Checkpointing: MySQL-backed (AIOMySQLSaver from langgraph-checkpoint-mysql) in
 production — no Postgres dependency, reuses the same MySQL instance that's
 already the system of record (spec 2.5). Falls back to in-memory MemorySaver
-for local dev (APP_ENV=development / sqlite mode), since that's dev-only by
+for local dev (APP_ENV=development), since that's dev-only by
 definition and doesn't need to survive a restart.
 """
 
@@ -47,7 +47,8 @@ async def get_checkpointer():
     disallows MD5 in generated columns used by AIOMySQLSaver.setup()).
     MemorySaver is fine for dev — checkpoints survive the request, not a restart.
     """
-    if settings.resolved_database_url.startswith("sqlite"):
+    # Use MemorySaver for local development
+    if settings.app_env == "development":
         return MemorySaver()
 
     if "instance" in _checkpointer_singleton:
@@ -64,7 +65,7 @@ async def get_checkpointer():
         _checkpointer_singleton["cm"] = cm
         _checkpointer_singleton["instance"] = checkpointer
         return checkpointer
-    except Exception as exc:
+    except (ImportError, RuntimeError, OSError) as exc:
         import logging
         logging.getLogger("careeros").warning(
             "MySQL checkpointer setup failed (%s) — falling back to MemorySaver. "
@@ -115,9 +116,15 @@ async def _retrieve_and_rerank(state: CareerOSState, db: Session) -> CareerOSSta
     client = get_client()
     semantic_hits = dict(semantic_search(client, req.query, limit=50))
 
+    # Batch fetch all jobs at once to avoid N+1 query problem
+    jobs_map = {}
+    if state["candidate_ids"]:
+        jobs = db.execute(select(Job).where(Job.id.in_(state["candidate_ids"]))).scalars().all()
+        jobs_map = {job.id: job for job in jobs}
+
     scored = []
     for job_id in state["candidate_ids"]:
-        job = db.get(Job, job_id)
+        job = jobs_map.get(job_id)
         if not job:
             continue
         kw = keyword_score(req.query, job.title, job.description)

@@ -30,7 +30,7 @@ def main():
         interface=Interfaces.ASGI,
         workers=args.workers,
         reload=args.reload,
-        reload_paths=["app"] if args.reload else None,  # never watch the sqlite db file
+        reload_paths=["app"] if args.reload else None,
         log_level="info",
     )
     server.serve()

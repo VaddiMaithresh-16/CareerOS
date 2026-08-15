@@ -20,7 +20,7 @@ class Settings(BaseSettings):
 
     adzuna_app_id: str = ""
     adzuna_app_key: str = ""
-    adzuna_country: str = "us"  # gb, us, in, etc — see Adzuna docs for supported codes
+    adzuna_country: str = "in"  # gb, us, in, etc — see Adzuna docs for supported codes
 
     job_sources: str = "jsearch,adzuna,remotive,remoteok,arbeitnow"  # comma-separated, used when job_api_mode=live
 
@@ -44,13 +44,21 @@ class Settings(BaseSettings):
 
     @property
     def resolved_database_url(self) -> str:
+        # Always use MySQL - never fall back to SQLite
         if self.database_url:
             return self.database_url
-        if self.app_env == "development":
-            return "sqlite:///./careeros_dev.db"
-        return (
-            f"mysql+pymysql://{self.mysql_user}:{self.mysql_password}"
-            f"@{self.mysql_host}:{self.mysql_port}/{self.mysql_database}"
+
+        # Build MySQL URL from components
+        if all([self.mysql_host, self.mysql_port, self.mysql_database, self.mysql_user]):
+            return (
+                f"mysql+pymysql://{self.mysql_user}:{self.mysql_password}"
+                f"@{self.mysql_host}:{self.mysql_port}/{self.mysql_database}"
+            )
+
+        # If neither is properly configured, raise an error
+        raise ValueError(
+            "MySQL database not properly configured. Either set DATABASE_URL or provide "
+            "all of MYSQL_HOST, MYSQL_PORT, MYSQL_DATABASE, and MYSQL_USER."
         )
 
 

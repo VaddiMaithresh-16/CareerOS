@@ -49,9 +49,9 @@ _EXPERIENCE_MARKERS = [
 
 _SALARY_RE = re.compile(
     r"(?P<currency>₹|\$|€|£|Rs\.?|INR|USD|EUR|GBP)?\s*"
-    r"(?P<min>[\d,]+(?:\.\d+)?)\s*(?:k|K)?"
+    r"(?P<min>[\d,]+(?:\.\d+)?)\s*(?P<min_k>k|K)?"
     r"(?:\s*[-–to]+\s*(?:₹|\$|€|£|Rs\.?|INR|USD|EUR|GBP)?\s*"
-    r"(?P<max>[\d,]+(?:\.\d+)?)\s*(?:k|K)?)?"
+    r"(?P<max>[\d,]+(?:\.\d+)?)\s*(?P<max_k>k|K)?)?"
 )
 
 _CURRENCY_MAP = {
@@ -66,7 +66,10 @@ def normalize_url(raw_url: str) -> str:
     """Strip tracking params/fragment, lowercase scheme+host, for stable dedup hashing."""
     parts = urlsplit(raw_url.strip())
     scheme = parts.scheme.lower() or "https"
+    # Strip userinfo (user:pass@) from netloc if present
     netloc = parts.netloc.lower()
+    if "@" in netloc:
+        netloc = netloc.split("@", 1)[1]
     path = parts.path.rstrip("/")
     # drop query + fragment entirely — most job boards use them for tracking
     return urlunsplit((scheme, netloc, path, "", ""))
@@ -133,7 +136,11 @@ def parse_salary(raw: str | None) -> tuple[float | None, float | None, str]:
         return float(s.replace(",", ""))
 
     lo = to_float(m.group("min"))
+    if m.group("min_k"):
+        lo *= 1000
     hi = to_float(m.group("max")) or lo
+    if m.group("max_k"):
+        hi *= 1000
     currency_raw = (m.group("currency") or "").strip().lower()
     currency = _CURRENCY_MAP.get(currency_raw, "unknown")
     return lo, hi, currency

@@ -26,6 +26,23 @@ _request_counts: dict[str, deque] = defaultdict(deque)
 _RATE_LIMIT_WINDOW_SECONDS = 60
 
 
+def _warn_if_unsafe_rate_limit_config() -> None:
+    """Log a warning if multi-worker deployment with in-memory rate limiting."""
+    # In production with workers > 1, in-memory rate limiting is per-process
+    # and won't be shared across workers. This is a common misconfiguration.
+    if settings.rate_limit_per_minute and settings.app_env == "production":
+        import os
+        # Granian sets WORKER_COUNT env or can be detected via process count
+        # We can't reliably detect worker count here, so warn if API_KEY is set
+        # (indicating prod intent) and rate limiting is enabled
+        if settings.api_key:
+            logger.warning(
+                "Rate limiting enabled with in-memory backend in production. "
+                "With multiple workers, each worker has a separate counter. "
+                "Use a Redis-backed limiter for shared rate limiting."
+            )
+
+
 class RequestContextMiddleware(BaseHTTPMiddleware):
     """Assigns a request id, logs method/path/status/duration for every call."""
 

@@ -9,6 +9,8 @@ A real Qdrant server has no such restriction (that's the concurrent-access case
 the client's error message points at).
 """
 
+import threading
+
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as qm
 
@@ -22,17 +24,21 @@ _embedder: EmbeddingProvider = get_embedding_provider()
 
 
 _client_singleton: QdrantClient | None = None
+_client_lock = threading.Lock()
 
 
 def get_client() -> QdrantClient:
     global _client_singleton
     if _client_singleton is not None:
         return _client_singleton
-    qdrant_url = getattr(settings, "qdrant_url", "") or ""
-    if qdrant_url:
-        _client_singleton = QdrantClient(url=qdrant_url)
-    else:
-        _client_singleton = QdrantClient(path="./qdrant_local")
+    with _client_lock:
+        if _client_singleton is not None:
+            return _client_singleton
+        qdrant_url = getattr(settings, "qdrant_url", "") or ""
+        if qdrant_url:
+            _client_singleton = QdrantClient(url=qdrant_url)
+        else:
+            _client_singleton = QdrantClient(path="./qdrant_local")
     return _client_singleton
 
 

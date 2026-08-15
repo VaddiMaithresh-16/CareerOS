@@ -1,6 +1,7 @@
 """FastAPI entrypoint. Phase 1 vertical slice: API -> normalize -> dedup -> MySQL -> filter."""
 
 import logging
+from datetime import datetime, timezone, timedelta
 
 from fastapi import FastAPI, Depends
 from sqlalchemy import select
@@ -8,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db import Base, engine, get_db
-from app.middleware import RequestContextMiddleware, RateLimitMiddleware, require_api_key
+from app.middleware import RequestContextMiddleware, RateLimitMiddleware, require_api_key, _warn_if_unsafe_rate_limit_config
 from app.schemas import JobOut, SearchRequest, MatchRequest, MatchedJobOut
 from app.services.job_api_adapter import get_adapter
 from app.services.normalize import normalize_job
@@ -19,6 +20,8 @@ from app.models import Job
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("careeros")
 settings = get_settings()
+
+_warn_if_unsafe_rate_limit_config()
 
 app = FastAPI(title="CareerOS", version="0.2.0")
 
@@ -49,8 +52,44 @@ async def search_jobs(req: SearchRequest, db: Session = Depends(get_db)):
         if created:
             logger.info("job inserted source=%s source_id=%s", normalized.source, normalized.source_id)
 
-    all_jobs = db.execute(select(Job)).scalars().all()
-    filtered = apply_hard_filters(all_jobs, req)
+    # Build base query with filters that can be applied at the database level
+    query = select(Job).where(Job.is_active == True)
+
+    # Apply employment type filter if specified
+    if req.employment_type and req.employment_type != "unknown":
+        query = query.where(Job.employment_type == req.employment_type)
+
+    # Apply experience level filter if specified
+    if req.experience_level and req.experience_level != "unknown":
+        query = query.where(Job.experience_level == req.experience_level)
+
+    # Apply remote only filter if specified
+    if req.remote_only:
+        query = query.where(Job.remote == "remote")
+
+    # Apply minimum salary filter if specified
+    if req.min_salary is not None:
+        # Only exclude jobs where we know the max salary is less than required
+        # Unknown salaries are not excluded (spec 2.3)
+        query = query.where(
+            (Job.salary_max.is_(None)) | (Job.salary_max >= req.min_salary)
+        )
+
+    # Apply posted within days filter if specified
+    if req.posted_within_days is not None:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=req.posted_within_days)
+        # Only exclude jobs where we know the posted date is before cutoff
+        # Unknown dates are not excluded (spec 2.3)
+        query = query.where(
+            (Job.posted_at.is_(None)) | (Job.posted_at >= cutoff)
+        )
+
+    # Execute the query to get candidate jobs
+    candidate_jobs = db.execute(query).scalars().all()
+
+    # Apply remaining filters (location and query string) in Python
+    # These are more complex to do efficiently in SQL with our current implementation
+    filtered = apply_hard_filters(candidate_jobs, req)
     return filtered
 
 

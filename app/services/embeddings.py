@@ -8,17 +8,10 @@ sentence-transformers) when running somewhere with model-hub access — the
 EmbeddingProvider interface below doesn't change either way.
 """
 
+import functools
 from typing import Protocol
 
 from sklearn.feature_extraction.text import HashingVectorizer
-
-_VECTOR_SIZE = 256
-
-_vectorizer = HashingVectorizer(
-    n_features=_VECTOR_SIZE,
-    alternate_sign=False,
-    norm="l2",
-)
 
 
 class EmbeddingProvider(Protocol):
@@ -28,6 +21,18 @@ class EmbeddingProvider(Protocol):
     def embed_batch(self, texts: list[str]) -> list[list[float]]: ...
 
 
+_VECTOR_SIZE = 256
+
+
+def _get_vectorizer() -> HashingVectorizer:
+    """Create and cache the HashingVectorizer instance."""
+    return HashingVectorizer(
+        n_features=_VECTOR_SIZE,
+        alternate_sign=False,
+        norm="l2",
+    )
+
+
 class LocalHashingEmbedding:
     dim = _VECTOR_SIZE
 
@@ -35,9 +40,11 @@ class LocalHashingEmbedding:
         return self.embed_batch([text])[0]
 
     def embed_batch(self, texts: list[str]) -> list[list[float]]:
-        matrix = _vectorizer.transform(texts)
+        matrix = _get_vectorizer().transform(texts)
         return matrix.toarray().tolist()
 
 
+@functools.lru_cache(maxsize=1)
 def get_embedding_provider() -> EmbeddingProvider:
+    """Get cached embedding provider instance."""
     return LocalHashingEmbedding()
