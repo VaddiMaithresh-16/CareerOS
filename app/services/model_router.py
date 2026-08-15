@@ -142,8 +142,8 @@ class ModelRouter:
 
     def __init__(
         self,
-        llama: LLMProvider | None,
-        gemini: LLMProvider | None,
+        llama: LLMProvider | None = None,
+        gemini: LLMProvider | None = None,
         openrouter: LLMProvider | None = None,
         nvidia: LLMProvider | None = None,
         provider_mode: str = "auto",
@@ -196,14 +196,18 @@ class ModelRouter:
         # 2. Try NVIDIA NIM (optimized inference, free tier available)
         if self._nvidia:
             try:
-                return await self._nvidia.structured(prompt, MatchExplanation)
+                result = await self._nvidia.structured(prompt, MatchExplanation)
+                if result.confidence >= 0.6:
+                    return result
             except (httpx.HTTPError, ValidationError, KeyError, json.JSONDecodeError, RuntimeError):
                 pass  # fall through
 
         # 3. Try OpenRouter (100+ models, free tier available)
         if self._openrouter:
             try:
-                return await self._openrouter.structured(prompt, MatchExplanation)
+                result = await self._openrouter.structured(prompt, MatchExplanation)
+                if result.confidence >= 0.6:
+                    return result
             except (httpx.HTTPError, ValidationError, KeyError, json.JSONDecodeError, RuntimeError):
                 pass  # fall through
 
