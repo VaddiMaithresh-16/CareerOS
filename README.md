@@ -27,8 +27,8 @@ CareerOS integrates with several external APIs for discovery and intelligence. W
 | **Firecrawl** | Job live verification | 500 credits/month free | Sign up at [Firecrawl.dev](https://www.firecrawl.dev/) and generate an API key. |
 | **Google Gemini** | LLM for matching | Generous free tier | Generate an API key at [Google AI Studio](https://aistudio.google.com/app/apikey). |
 | **llama.cpp** | Local LLM (optional) | Free, runs locally | Install [llama.cpp](https://github.com/ggerganov/llama.cpp) and run a model server. |
-| **OpenRouter** | 100+ models (Claude, GPT, Llama) | Free tier available | Get key at [OpenRouter](https://openrouter.ai/keys) |
-| **NVIDIA NIM** | Optimized inference microservices | Free tier available | Get key at [NVIDIA Build](https://build.nvidia.com/explore/discover) |
+| **OpenRouter** | 100+ models (Claude, GPT, Llama) | Free tier: `meta-llama/llama-3.1-8b-instruct:free`, `google/gemma-2-9b-it:free`, `mistralai/mistral-7b-instruct:free`, `microsoft/phi-3-mini-128k-instruct:free` | Get key at [OpenRouter](https://openrouter.ai/keys) |
+| **NVIDIA NIM** | Optimized inference microservices | Free tier: `meta/llama-3.1-8b-instruct`, `google/gemma-2-9b-it` | Get key at [NVIDIA Build](https://build.nvidia.com/explore/discover) |
 
 ---
 
@@ -146,6 +146,14 @@ The web interface supports advanced search filters:
 - **Posted Within**: Recency filter in days
 - **LLM Provider**: auto / llama / gemini / openrouter / nvidia / none
 - **Model**: Model selection dropdown (populated based on provider)
+
+### 5. Auto Mode Fallback Chain (LLM_PROVIDER_MODE=auto)
+
+When set to `auto`, the system tries providers in this order until one succeeds with confidence ≥ 0.6:
+1. **Local llama.cpp** — Private, fast, free (requires local server)
+2. **NVIDIA NIM** — Optimized inference, free tier available
+3. **OpenRouter** — 100+ models, free tier available
+4. **Google Gemini** — Generous free tier
 
 ---
 

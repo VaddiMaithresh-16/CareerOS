@@ -183,15 +183,31 @@ class ModelRouter:
                     return MatchExplanation(explanation=f"LLM error: {type(e).__name__}")
             return MatchExplanation(explanation=f"unknown — provider '{self._provider_mode}' not configured")
 
-        # Auto mode: llama.cpp → Gemini escalation (original behavior)
+        # Auto mode: llama.cpp → NVIDIA → OpenRouter → Gemini (fallback chain)
+        # 1. Try local llama.cpp first (private, fast, free)
         if self._llama:
             try:
                 result = await self._llama.structured(prompt, MatchExplanation)
                 if result.confidence >= 0.6:
                     return result
             except (httpx.HTTPError, ValidationError, KeyError, json.JSONDecodeError):
-                pass  # fall through to escalation
+                pass  # fall through to next provider
 
+        # 2. Try NVIDIA NIM (optimized inference, free tier available)
+        if self._nvidia:
+            try:
+                return await self._nvidia.structured(prompt, MatchExplanation)
+            except (httpx.HTTPError, ValidationError, KeyError, json.JSONDecodeError, RuntimeError):
+                pass  # fall through
+
+        # 3. Try OpenRouter (100+ models, free tier available)
+        if self._openrouter:
+            try:
+                return await self._openrouter.structured(prompt, MatchExplanation)
+            except (httpx.HTTPError, ValidationError, KeyError, json.JSONDecodeError, RuntimeError):
+                pass  # fall through
+
+        # 4. Try Google Gemini (generous free tier)
         if self._gemini:
             try:
                 return await self._gemini.structured(prompt, MatchExplanation)
