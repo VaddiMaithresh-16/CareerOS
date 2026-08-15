@@ -14,6 +14,30 @@ EXPERIENCE_LEVELS = ["", "intern", "fresher", "entry", "mid", "senior"]
 # Display salary as monthly INR (API stores annual)
 MONTHS_PER_YEAR = 12
 
+PROVIDERS = ["auto", "llama", "gemini", "openrouter", "nvidia", "none"]
+PROVIDER_MODELS = {
+    "auto": ["(uses config default)"],
+    "llama": ["(uses config default)"],
+    "gemini": ["gemini-flash-latest", "gemini-pro-latest"],
+    "openrouter": [
+        "anthropic/claude-3.5-sonnet",
+        "anthropic/claude-3-haiku",
+        "openai/gpt-4o",
+        "openai/gpt-4o-mini",
+        "meta-llama/llama-3.1-70b-instruct",
+        "meta-llama/llama-3.1-8b-instruct",
+        "google/gemini-flash-1.5",
+        "mistralai/mistral-large",
+    ],
+    "nvidia": [
+        "meta/llama-3.1-70b-instruct",
+        "meta/llama-3.1-8b-instruct",
+        "nvidia/nemotron-3-ultra",
+        "nvidia/nemotron-4-340b-instruct",
+    ],
+    "none": ["(no LLM)"],
+}
+
 
 def _auth_headers() -> dict:
     if API_KEY:
@@ -44,29 +68,30 @@ def search(
     remote_only: bool,
     employment_type: str,
     experience_level: str,
-    min_salary_monthly: float,
+    min_salary: float,
     posted_within_days: int,
+    llm_provider: str,
+    model_name: str,
 ):
     if not query.strip():
         return "Enter a role/query first."
 
-    # Convert monthly min_salary to annual for API (API expects annual)
-    min_salary_annual = min_salary_monthly * MONTHS_PER_YEAR if min_salary_monthly > 0 else None
-
+    # API expects annual salary
     payload = {
         "query": query,
         "location": location or None,
         "remote_only": remote_only,
         "employment_type": employment_type or None,
         "experience_level": experience_level or None,
-        "min_salary": min_salary_annual,
+        "min_salary": min_salary if min_salary > 0 else None,
         "posted_within_days": posted_within_days if posted_within_days > 0 else None,
+        "llm_provider": llm_provider if llm_provider != "auto" else None,
+        "model_name": model_name if model_name and model_name != "(uses config default)" and model_name != "(no LLM)" else None,
     }
-    # Remove None values
     payload = {k: v for k, v in payload.items() if v is not None}
 
     try:
-        resp = httpx.post(f"{API_BASE}/jobs/search", json=payload, headers=_auth_headers(), timeout=30.0)
+        resp = httpx.post(f"{API_BASE}/jobs/match", json=payload, headers=_auth_headers(), timeout=60.0)
         resp.raise_for_status()
         jobs = resp.json()
     except httpx.HTTPError as e:
@@ -77,37 +102,74 @@ def search(
 
     rows = []
     for j in jobs:
-        salary = _format_monthly_inr(j["salary_min"], j["salary_max"], j["salary_currency"])
+        # MatchedJobOut structure: {job: JobOut, hybrid_score, keyword_score, semantic_score, matched_skills, missing_skills, explanation, confidence}
+        job = j["job"]
+        salary = _format_monthly_inr(job["salary_min"], job["salary_max"], job["salary_currency"])
         rows.append(
-            f"### {j['title']} — {j['company']}\n"
-            f"- Location: {j['location_normalized']} ({j['remote']})\n"
-            f"- Type: {j['employment_type']}\n"
-            f"- Experience: {j['experience_level']}\n"
+            f"### {job['title']} — {job['company']}\n"
+            f"- Location: {job['location_normalized']} ({job['remote']})\n"
+            f"- Type: {job['employment_type']}\n"
+            f"- Experience: {job['experience_level']}\n"
             f"- Salary: {salary}\n"
-            f"- Verified: {j['verified']}\n"
-            f"- Apply: {j['apply_url']}\n"
+            f"- Verified: {job['verified']}\n"
+            f"- Match: {j['hybrid_score']:.2f} (kw: {j['keyword_score']:.2f}, sem: {j['semantic_score']:.2f})\n"
+            f"- Skills: {', '.join(j['matched_skills']) if j['matched_skills'] else 'none'}\n"
+            f"- Missing: {', '.join(j['missing_skills']) if j['missing_skills'] else 'none'}\n"
+            f"- Explanation: {j['explanation']}\n"
+            f"- Apply: {job['apply_url']}\n"
         )
     return "\n---\n".join(rows)
 
 
+def update_model_dropdown(provider: str):
+    models = PROVIDER_MODELS.get(provider, PROVIDER_MODELS["auto"])
+    return gr.Dropdown(choices=models, value=models[0], label="Model", interactive=True)
+
+
 with gr.Blocks(title="CareerOS") as demo:
-    gr.Markdown("# CareerOS — Job Search")
+    gr.Markdown("# CareerOS — Job Search & Match")
     with gr.Row():
         query = gr.Textbox(label="Role / query", placeholder="e.g. backend engineer")
     with gr.Row():
-        location = gr.Textbox(label="Location", value=DEFAULT_LOCATION, placeholder="e.g. Hyderabad, India")
+        location = gr.Textbox(label="Location (optional)", value="Hyderabad, India")
         remote_only = gr.Checkbox(label="Remote only", value=False)
     with gr.Row():
-        employment_type = gr.Dropdown(label="Employment Type", choices=EMPLOYMENT_TYPES, value="", allow_custom_value=True)
-        experience_level = gr.Dropdown(label="Experience Level", choices=EXPERIENCE_LEVELS, value="", allow_custom_value=True)
+        employment_type = gr.Dropdown(
+            label="Employment Type",
+            choices=["", "full_time", "part_time", "internship", "contract", "temporary"],
+            value="",
+            allow_custom_value=True,
+        )
+        experience_level = gr.Dropdown(
+            label="Experience Level",
+            choices=["", "intern", "fresher", "entry", "mid", "senior"],
+            value="",
+            allow_custom_value=True,
+        )
     with gr.Row():
-        min_salary = gr.Number(label="Minimum Salary (monthly, ₹)", value=0, precision=0)
+        min_salary = gr.Number(label="Minimum Salary (annual)", value=0, precision=0)
         posted_within_days = gr.Number(label="Posted Within (days)", value=0, precision=0)
-    btn = gr.Button("Search", variant="primary")
+    with gr.Row():
+        llm_provider = gr.Dropdown(label="LLM Provider", choices=PROVIDERS, value="auto")
+        model_name = gr.Dropdown(label="Model", choices=PROVIDER_MODELS["auto"], value=PROVIDER_MODELS["auto"][0])
+    btn = gr.Button("Search & Match", variant="primary")
     output = gr.Markdown()
+
+    llm_provider.change(fn=update_model_dropdown, inputs=llm_provider, outputs=model_name)
+
     btn.click(
         fn=search,
-        inputs=[query, location, remote_only, employment_type, experience_level, min_salary, posted_within_days],
+        inputs=[
+            query,
+            location,
+            remote_only,
+            employment_type,
+            experience_level,
+            min_salary,
+            posted_within_days,
+            llm_provider,
+            model_name,
+        ],
         outputs=output,
     )
 

@@ -74,6 +74,8 @@ class SearchRequest(BaseModel):
     remote_only: bool = False
     min_salary: Optional[float] = None
     posted_within_days: Optional[int] = None
+    llm_provider: Optional[str] = None  # "auto" | "llama" | "gemini" | "openrouter" | "nvidia" | "none"
+    model_name: Optional[str] = None
 
 
 class MatchRequest(BaseModel):
@@ -86,6 +88,8 @@ class MatchRequest(BaseModel):
     min_salary: Optional[float] = None
     posted_within_days: Optional[int] = None
     top_k: int = 10
+    llm_provider: Optional[str] = None  # "auto" | "llama" | "gemini" | "openrouter" | "nvidia" | "none"
+    model_name: Optional[str] = None
 
 
 class MatchedJobOut(BaseModel):
