@@ -1,7 +1,7 @@
 """Qdrant = index, not canonical (spec 2.5). MySQL row id is stored as payload for join-back.
 
 Local on-disk mode used here (no server needed) — swap `path=` for `url=QDRANT_URL`
-against a real Qdrant instance in prod (docker-compose already provisions one slot for it).
+against a real Qdrant instance in prod (configured via QDRANT_URL env var).
 
 Local file-mode Qdrant locks its storage dir to a single process — get_client()
 returns a process-wide singleton so multiple calls in one request don't collide.

@@ -112,7 +112,8 @@ async def match_jobs(req: MatchRequest, db: Session = Depends(get_db)):
     from app.graph import run_match_workflow
 
     thread_id = f"match-{id(req)}"
-    ranked = await run_match_workflow(db, req, thread_id)
+    # Pass llm_provider and model_name to the workflow
+    ranked = await run_match_workflow(db, req, thread_id, req.llm_provider, req.model_name)
 
     out = []
     for entry in ranked:

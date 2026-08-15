@@ -87,12 +87,81 @@ class NullProvider:
         return schema()
 
 
-class ModelRouter:
-    """Routing policy per spec 6.2: deterministic rules first, then llama.cpp, then Gemini escalation."""
+class OpenRouterProvider:
+    """OpenRouter - unified API for 100+ models (Claude, GPT, Llama, etc.) via LangChain."""
 
-    def __init__(self, llama: LLMProvider | None, gemini: LLMProvider | None):
+    def __init__(self, api_key: str, model: str):
+        self.api_key = api_key
+        self.model = model
+
+    async def structured(self, prompt: str, schema: type[BaseModel]) -> BaseModel:
+        try:
+            from langchain_openrouter import ChatOpenRouter
+        except ImportError:
+            raise RuntimeError("langchain-openrouter not installed. Run: pip install langchain-openrouter")
+
+        llm = ChatOpenRouter(
+            api_key=self.api_key,
+            model=self.model,
+            temperature=0,
+        )
+        structured_llm = llm.with_structured_output(schema)
+        result = await structured_llm.ainvoke(prompt)
+        return result
+
+
+class NVIDIAProvider:
+    """NVIDIA NIM - optimized inference microservices for LLMs via LangChain."""
+
+    def __init__(self, api_key: str, model: str):
+        self.api_key = api_key
+        self.model = model
+
+    async def structured(self, prompt: str, schema: type[BaseModel]) -> BaseModel:
+        try:
+            from langchain_nvidia_ai_endpoints import ChatNVIDIA
+        except ImportError:
+            raise RuntimeError("langchain-nvidia-ai-endpoints not installed. Run: pip install langchain-nvidia-ai-endpoints")
+
+        llm = ChatNVIDIA(
+            api_key=self.api_key,
+            model=self.model,
+            temperature=0,
+        )
+        structured_llm = llm.with_structured_output(schema)
+        result = await structured_llm.ainvoke(prompt)
+        return result
+
+
+class ModelRouter:
+    """Routing policy per spec 6.2: deterministic rules first, then llama.cpp, then Gemini escalation.
+
+    Extended with OpenRouter and NVIDIA providers. When provider_mode is explicitly set
+    (not 'auto'), that provider is used directly without fallback.
+    """
+
+    def __init__(
+        self,
+        llama: LLMProvider | None,
+        gemini: LLMProvider | None,
+        openrouter: LLMProvider | None = None,
+        nvidia: LLMProvider | None = None,
+        provider_mode: str = "auto",
+    ):
         self._llama = llama
         self._gemini = gemini
+        self._openrouter = openrouter
+        self._nvidia = nvidia
+        self._provider_mode = provider_mode
+
+    def _get_provider(self, name: str) -> LLMProvider | None:
+        providers = {
+            "llama": self._llama,
+            "gemini": self._gemini,
+            "openrouter": self._openrouter,
+            "nvidia": self._nvidia,
+        }
+        return providers.get(name)
 
     async def explain_match(self, job_title: str, job_description: str, candidate_skills: list[str]) -> MatchExplanation:
         prompt = (
@@ -104,16 +173,41 @@ class ModelRouter:
             "confidence (0-1)."
         )
 
-        # local first — cheap, private, high volume (spec 48 cost priority)
+        # If explicit provider mode (not auto), use only that provider
+        if self._provider_mode != "auto":
+            provider = self._get_provider(self._provider_mode)
+            if provider:
+                try:
+                    return await provider.structured(prompt, MatchExplanation)
+                except (httpx.HTTPError, ValidationError, KeyError, json.JSONDecodeError, RuntimeError) as e:
+                    return MatchExplanation(explanation=f"LLM error: {type(e).__name__}")
+            return MatchExplanation(explanation=f"unknown — provider '{self._provider_mode}' not configured")
+
+        # Auto mode: llama.cpp → NVIDIA → OpenRouter → Gemini (fallback chain)
+        # 1. Try local llama.cpp first (private, fast, free)
         if self._llama:
             try:
                 result = await self._llama.structured(prompt, MatchExplanation)
                 if result.confidence >= 0.6:
                     return result
             except (httpx.HTTPError, ValidationError, KeyError, json.JSONDecodeError):
-                pass  # fall through to escalation, fail explicit not silent
+                pass  # fall through to next provider
 
-        # confidence-based escalation to Gemini (spec 49)
+        # 2. Try NVIDIA NIM (optimized inference, free tier available)
+        if self._nvidia:
+            try:
+                return await self._nvidia.structured(prompt, MatchExplanation)
+            except (httpx.HTTPError, ValidationError, KeyError, json.JSONDecodeError, RuntimeError):
+                pass  # fall through
+
+        # 3. Try OpenRouter (100+ models, free tier available)
+        if self._openrouter:
+            try:
+                return await self._openrouter.structured(prompt, MatchExplanation)
+            except (httpx.HTTPError, ValidationError, KeyError, json.JSONDecodeError, RuntimeError):
+                pass  # fall through
+
+        # 4. Try Google Gemini (generous free tier)
         if self._gemini:
             try:
                 return await self._gemini.structured(prompt, MatchExplanation)
@@ -127,12 +221,38 @@ def get_model_router() -> ModelRouter:
     # Short timeout for llama so we fail fast if server isn't running
     llama = LlamaCppProvider(settings.llama_cpp_base_url, timeout=5.0) if settings.llama_cpp_base_url else None
     gemini = GeminiProvider(settings.gemini_api_key, settings.gemini_model) if settings.gemini_api_key else None
+    openrouter = OpenRouterProvider(settings.openrouter_api_key, settings.openrouter_model) if settings.openrouter_api_key else None
+    nvidia = NVIDIAProvider(settings.nvidia_api_key, settings.nvidia_model) if settings.nvidia_api_key else None
 
-    if settings.llm_provider_mode == "llama":
-        gemini = None
-    elif settings.llm_provider_mode == "gemini":
-        llama = None
-    elif settings.llm_provider_mode == "none":
-        llama = gemini = None
+    return ModelRouter(
+        llama=llama,
+        gemini=gemini,
+        openrouter=openrouter,
+        nvidia=nvidia,
+        provider_mode=settings.llm_provider_mode,
+    )
 
-    return ModelRouter(llama, gemini)
+
+def get_model_router_for_request(llm_provider: str | None = None, model_name: str | None = None) -> ModelRouter:
+    """Create a ModelRouter with per-request provider/model override."""
+    provider_mode = llm_provider or settings.llm_provider_mode
+
+    # Use config defaults unless overridden
+    openrouter_key = settings.openrouter_api_key
+    openrouter_model = model_name if (provider_mode == "openrouter" or model_name) else settings.openrouter_model
+    nvidia_key = settings.nvidia_api_key
+    nvidia_model = model_name if (provider_mode == "nvidia" or model_name) else settings.nvidia_model
+
+    # Base providers from config
+    llama = LlamaCppProvider(settings.llama_cpp_base_url) if settings.llama_cpp_base_url else None
+    gemini = GeminiProvider(settings.gemini_api_key, settings.gemini_model) if settings.gemini_api_key else None
+    openrouter = OpenRouterProvider(openrouter_key, openrouter_model) if openrouter_key else None
+    nvidia = NVIDIAProvider(nvidia_key, nvidia_model) if nvidia_key else None
+
+    return ModelRouter(
+        llama=llama,
+        gemini=gemini,
+        openrouter=openrouter,
+        nvidia=nvidia,
+        provider_mode=provider_mode,
+    )

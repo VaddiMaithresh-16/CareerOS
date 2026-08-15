@@ -6,7 +6,7 @@
 
 - **Multi-Source Job Discovery**: Seamlessly fetches jobs from multiple platforms including JSearch, Adzuna, Remotive, RemoteOK, and Arbeitnow.
 - **Intelligent Filtering & Deduplication**: Normalizes job data, eliminates duplicates using URL and content hashing, and enforces hard deterministic filters (e.g., location, employment type, experience level, salary, recency).
-- **Evidence-Based Matching**: Leverages vector search (Qdrant) alongside LLMs (Google Gemini, local Llama models) to evaluate candidate fit and provide explainable evidence for recommended matches.
+- **Evidence-Based Matching**: Leverages vector search (Qdrant) alongside LLMs (Google Gemini, local Llama models, OpenRouter, NVIDIA NIM) to evaluate candidate fit and provide explainable evidence for recommended matches.
 - **Verification Engine**: Validates job posting integrity to ensure listings are still active and accepting applications.
 - **High-Performance Stack**: Built from the ground up using FastAPI, LangGraph, SQLAlchemy, and Granian for low-latency asynchronous processing.
 - **India-First Defaults**: Pre-configured for Indian job market (Adzuna India, Hyderabad as default location).
@@ -27,6 +27,8 @@ CareerOS integrates with several external APIs for discovery and intelligence. W
 | **Firecrawl** | Job live verification | 500 credits/month free | Sign up at [Firecrawl.dev](https://www.firecrawl.dev/) and generate an API key. |
 | **Google Gemini** | LLM for matching | Generous free tier | Generate an API key at [Google AI Studio](https://aistudio.google.com/app/apikey). |
 | **llama.cpp** | Local LLM (optional) | Free, runs locally | Install [llama.cpp](https://github.com/ggerganov/llama.cpp) and run a model server. |
+| **OpenRouter** | 100+ models (Claude, GPT, Llama) | Free tier: `meta-llama/llama-3.1-8b-instruct:free`, `google/gemma-2-9b-it:free`, `mistralai/mistral-7b-instruct:free`, `microsoft/phi-3-mini-128k-instruct:free` | Get key at [OpenRouter](https://openrouter.ai/keys) |
+| **NVIDIA NIM** | Optimized inference microservices | Free tier: `meta/llama-3.1-8b-instruct`, `google/gemma-2-9b-it` | Get key at [NVIDIA Build](https://build.nvidia.com/explore/discover) |
 
 ---
 
@@ -36,7 +38,7 @@ CareerOS integrates with several external APIs for discovery and intelligence. W
 
 - **Python 3.12+**
 - **Git**
-- **MySQL** (Required for production and CI)
+- **MySQL** (Required: the system uses MySQL for development and production)
 
 ### 1. Clone the Repository
 
@@ -142,6 +144,16 @@ The web interface supports advanced search filters:
 - **Experience Level**: Intern, Fresher, Entry, Mid, Senior
 - **Minimum Salary**: Annual salary floor (in local currency)
 - **Posted Within**: Recency filter in days
+- **LLM Provider**: auto / llama / gemini / openrouter / nvidia / none
+- **Model**: Model selection dropdown (populated based on provider)
+
+### 5. Auto Mode Fallback Chain (LLM_PROVIDER_MODE=auto)
+
+When set to `auto`, the system tries providers in this order until one succeeds with confidence ≥ 0.6:
+1. **Local llama.cpp** — Private, fast, free (requires local server)
+2. **NVIDIA NIM** — Optimized inference, free tier available
+3. **OpenRouter** — 100+ models, free tier available
+4. **Google Gemini** — Generous free tier
 
 ---
 
